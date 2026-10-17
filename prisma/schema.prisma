@@ -1,0 +1,761 @@
+// ============================================================================
+// TOPUPKU - ENTERPRISE POSTGRESQL PRISMA SCHEMA
+// Database: PostgreSQL (Strict - SQLite Prohibited)
+// Timezone: Asia/Jakarta
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum RoleType {
+  USER
+  RESELLER
+  VIP
+  ADMIN
+  SUPERADMIN
+}
+
+enum MemberLevel {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+  BANNED
+}
+
+enum CategoryType {
+  GAME_MOBILE
+  GAME_PC
+  PULSA
+  PAKET_DATA
+  TOKEN_PLN
+  VOUCHER_DIGITAL
+  EWALLET
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  OUT_OF_STOCK
+  MAINTENANCE
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING_SUPPLIER
+  SUCCESS
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum PaymentMethodType {
+  QRIS_DYNAMIC
+  WALLET_BALANCE
+  VIRTUAL_ACCOUNT
+  EWALLET
+}
+
+enum PaymentStatus {
+  PENDING
+  SETTLEMENT
+  EXPIRED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum SupplierStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum WalletTxType {
+  DEPOSIT
+  PAYMENT
+  REFUND
+  CASHBACK
+  REFERRAL_BONUS
+  ADMIN_ADJUSTMENT
+}
+
+enum DepositStatus {
+  PENDING
+  SETTLEMENT
+  EXPIRED
+  FAILED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  CASHBACK
+}
+
+enum NotificationChannel {
+  WEBSITE
+  EMAIL
+  WHATSAPP
+}
+
+enum NotificationType {
+  ACCOUNT_CREATED
+  PAYMENT_SUCCESS
+  PAYMENT_EXPIRED
+  ORDER_PROCESSING
+  ORDER_SUCCESS
+  ORDER_FAILED
+  DEPOSIT_SUCCESS
+  ORDER_STATUS_CHANGED
+  PROMO_ALERT
+  SECURITY_ALERT
+}
+
+enum AppExecutionMode {
+  DEMO
+  PRODUCTION
+}
+
+// ----------------------------------------------------------------------------
+// 1. ROLE & USER MANAGEMENT MODELS
+// ----------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(cuid())
+  name        RoleType @unique
+  displayName String
+  description String?
+  permissions Json     @default("[]")
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
+
+model User {
+  id                  String        @id @default(cuid())
+  email               String        @unique
+  username            String        @unique
+  fullName            String
+  phone               String?       @unique
+  passwordHash        String
+  avatarUrl           String?
+  roleId              String
+  role                Role          @relation(fields: [roleId], references: [id])
+  roleType            RoleType      @default(USER)
+  memberLevel         MemberLevel   @default(BRONZE)
+  status              AccountStatus @default(ACTIVE)
+  emailVerifiedAt     DateTime?
+  twoFactorEnabled    Boolean       @default(false)
+  loyaltyPoints       Int           @default(0)
+  referralCode        String        @unique
+  referredById        String?
+  referredBy          User?         @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals           User[]        @relation("UserReferrals")
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  wallet              Wallet?
+  orders              Order[]
+  deposits            Deposit[]
+  voucherUsages       VoucherUsage[]
+  referralsGiven      Referral[]    @relation("ReferrerUser")
+  referralsReceived   Referral[]    @relation("ReferredUser")
+  notifications       Notification[]
+  wishlists           Wishlist[]
+  loginHistories      LoginHistory[]
+  auditLogs           AuditLog[]
+
+  @@index([email])
+  @@index([username])
+  @@index([referralCode])
+  @@index([roleType, status])
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  ipAddress    String?
+  userAgent    String?
+  expires      DateTime
+  isRevoked    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  purpose    String   @default("EMAIL_VERIFY") // EMAIL_VERIFY | PASSWORD_RESET
+  expires    DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  @@unique([identifier, token])
+  @@index([token])
+}
+
+model LoginHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  ipAddress String
+  userAgent String
+  device    String?
+  location  String?
+  isSuccess Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ----------------------------------------------------------------------------
+// 2. CATALOG, PRODUCTS, VARIANTS & PRICING MODELS
+// ----------------------------------------------------------------------------
+
+model Category {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  type        CategoryType @default(GAME_MOBILE)
+  icon        String
+  description String?
+  sortOrder   Int          @default(0)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  products    Product[]
+  promotions  Promotion[]
+
+  @@index([slug])
+  @@index([type, isActive])
+}
+
+model Product {
+  id                  String        @id @default(cuid())
+  categoryId          String
+  category            Category      @relation(fields: [categoryId], references: [id])
+  name                String
+  slug                String        @unique
+  publisher           String
+  subtitle            String?
+  description         String        @db.Text
+  thumbnailUrl        String
+  bannerUrl           String
+  iconUrl             String?
+  requiresZoneId      Boolean       @default(false)
+  zoneIdLabel         String?       @default("Zone ID")
+  userIdLabel         String        @default("User ID")
+  userIdPlaceholder   String        @default("Masukkan User ID")
+  zoneIdPlaceholder   String?       @default("Masukkan Zone ID")
+  zoneOptions         Json?         // Optional list of servers for games like Genshin Impact
+  instructionText     String        @db.Text
+  supportsIdCheck     Boolean       @default(true)
+  isPopular           Boolean       @default(false)
+  isNew               Boolean       @default(false)
+  isFeatured          Boolean       @default(false)
+  rating              Decimal       @default(4.9) @db.Decimal(3, 2)
+  reviewCount         Int           @default(120)
+  totalSold           Int           @default(0)
+  status              ProductStatus @default(ACTIVE)
+  seoTitle            String?
+  seoDescription      String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  variants            ProductVariant[]
+  orderItems          OrderItem[]
+  wishlists           Wishlist[]
+
+  @@index([slug])
+  @@index([categoryId, status])
+  @@index([isPopular, status])
+  @@index([isNew, status])
+}
+
+model ProductVariant {
+  id                  String        @id @default(cuid())
+  productId           String
+  product             Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku                 String        @unique
+  supplierSku         String        @unique
+  name                String
+  denomination        String
+  bonusText           String?
+  iconType            String        @default("DIAMOND")
+  baseCost            Decimal       @db.Decimal(14, 2)
+  sellingPrice        Decimal       @db.Decimal(14, 2)
+  resellerPrice       Decimal       @db.Decimal(14, 2)
+  vipPrice            Decimal       @db.Decimal(14, 2)
+  profitMarginPercent Decimal       @default(8.00) @db.Decimal(5, 2)
+  profitAmount        Decimal       @db.Decimal(14, 2)
+  isFlashSale         Boolean       @default(false)
+  flashSalePrice      Decimal?      @db.Decimal(14, 2)
+  flashSaleStock      Int?
+  flashSaleSold       Int           @default(0)
+  stock               Int           @default(999)
+  isUnlimitedStock    Boolean       @default(true)
+  status              ProductStatus @default(ACTIVE)
+  sortOrder           Int           @default(0)
+  lastSyncedAt        DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  prices              ProductPrice[]
+  orderItems          OrderItem[]
+
+  @@index([productId, status])
+  @@index([sku])
+  @@index([supplierSku])
+  @@index([isFlashSale])
+}
+
+model ProductPrice {
+  id              String         @id @default(cuid())
+  variantId       String
+  variant         ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  memberLevel     MemberLevel
+  price           Decimal        @db.Decimal(14, 2)
+  discountPercent Decimal        @default(0) @db.Decimal(5, 2)
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([variantId, memberLevel])
+  @@index([variantId])
+}
+
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+// ----------------------------------------------------------------------------
+// 3. ORDERS, PAYMENTS, WEBHOOKS & SUPPLIER TRANSACTIONS
+// ----------------------------------------------------------------------------
+
+model Order {
+  id                  String            @id @default(cuid())
+  invoiceNumber       String            @unique
+  idempotencyKey      String            @unique
+  executionMode       AppExecutionMode  @default(DEMO)
+  userId              String?
+  user                User?             @relation(fields: [userId], references: [id])
+  customerName        String?
+  customerEmail       String
+  customerWhatsapp    String
+  gameUserId          String
+  gameZoneId          String?
+  gamePlayerNickname  String?
+  subtotalAmount      Decimal           @db.Decimal(14, 2)
+  discountAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  feeAmount           Decimal           @default(0) @db.Decimal(14, 2)
+  uniqueCode          Int               @default(0)
+  totalAmount         Decimal           @db.Decimal(14, 2)
+  costAmount          Decimal           @db.Decimal(14, 2)
+  profitAmount        Decimal           @db.Decimal(14, 2)
+  cashbackAmount      Decimal           @default(0) @db.Decimal(14, 2)
+  voucherCode         String?
+  paymentMethod       PaymentMethodType @default(QRIS_DYNAMIC)
+  status              OrderStatus       @default(PENDING_PAYMENT)
+  paymentStatus       PaymentStatus     @default(PENDING)
+  supplierStatus      SupplierStatus    @default(PENDING)
+  notes               String?
+  ipAddress           String?
+  userAgent           String?
+  paidAt              DateTime?
+  completedAt         DateTime?
+  expiredAt           DateTime
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  items               OrderItem[]
+  payment             Payment?
+  supplierTransaction SupplierTransaction?
+  voucherUsage        VoucherUsage?
+
+  @@index([invoiceNumber])
+  @@index([userId, createdAt])
+  @@index([status, paymentStatus])
+  @@index([customerWhatsapp])
+  @@index([executionMode, createdAt])
+}
+
+model OrderItem {
+  id          String         @id @default(cuid())
+  orderId     String
+  order       Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product        @relation(fields: [productId], references: [id])
+  variantId   String
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  productName String
+  variantName String
+  sku         String
+  supplierSku String
+  quantity    Int            @default(1)
+  unitCost    Decimal        @db.Decimal(14, 2)
+  unitPrice   Decimal        @db.Decimal(14, 2)
+  totalPrice  Decimal        @db.Decimal(14, 2)
+  profit      Decimal        @db.Decimal(14, 2)
+  createdAt   DateTime       @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model Payment {
+  id                  String            @id @default(cuid())
+  orderId             String            @unique
+  order               Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  midtransOrderId     String            @unique
+  midtransTransactionId String?         @unique
+  executionMode       AppExecutionMode  @default(DEMO)
+  method              PaymentMethodType @default(QRIS_DYNAMIC)
+  grossAmount         Decimal           @db.Decimal(14, 2)
+  qrisString          String            @db.Text
+  qrisImageUrl        String?           @db.Text
+  acquirer            String            @default("gopay")
+  status              PaymentStatus     @default(PENDING)
+  fraudStatus         String?           @default("accept")
+  signatureVerified   Boolean           @default(false)
+  verifiedViaApi      Boolean           @default(false)
+  settlementTime      DateTime?
+  expiresAt           DateTime
+  refundedAt          DateTime?
+  refundReason        String?
+  rawRequest          Json?
+  rawResponse         Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  webhooks            PaymentWebhook[]
+
+  @@index([midtransOrderId])
+  @@index([status, expiresAt])
+}
+
+model PaymentWebhook {
+  id                String        @id @default(cuid())
+  paymentId         String?
+  payment           Payment?      @relation(fields: [paymentId], references: [id])
+  provider          String        @default("MIDTRANS") // MIDTRANS | DIGIFLAZZ
+  orderId           String
+  transactionStatus String
+  signatureKey      String
+  isSignatureValid  Boolean       @default(false)
+  isProcessed       Boolean       @default(false)
+  idempotencyHash   String        @unique
+  payload           Json
+  errorMessage      String?
+  ipAddress         String?
+  receivedAt        DateTime      @default(now())
+  processedAt       DateTime?
+
+  @@index([orderId, provider])
+  @@index([receivedAt])
+}
+
+model SupplierTransaction {
+  id                String           @id @default(cuid())
+  orderId           String           @unique
+  order             Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refId             String           @unique
+  executionMode     AppExecutionMode @default(DEMO)
+  supplierName      String           @default("DIGIFLAZZ")
+  buyerSkuCode      String
+  customerNo        String
+  status            SupplierStatus   @default(PENDING)
+  rc                String?          // Response Code e.g. "00"
+  serialNumber      String?
+  message           String?
+  priceCharged      Decimal          @db.Decimal(14, 2)
+  buyerLastSaldo    Decimal?         @db.Decimal(14, 2)
+  attemptCount      Int              @default(1)
+  maxAttempts       Int              @default(3)
+  nextRetryAt       DateTime?
+  dispatchedLock    Boolean          @default(false)
+  sanitizedRequest  Json?
+  sanitizedResponse Json?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([refId])
+  @@index([status, nextRetryAt])
+}
+
+// ----------------------------------------------------------------------------
+// 4. WALLET, DEPOSIT, VOUCHER, PROMOTION & REFERRAL MODELS
+// ----------------------------------------------------------------------------
+
+model Wallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance      Decimal             @default(0) @db.Decimal(14, 2)
+  points       Int                 @default(0)
+  pinHash      String?
+  isLocked     Boolean             @default(false)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id            String       @id @default(cuid())
+  walletId      String
+  wallet        Wallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  referenceCode String       @unique
+  type          WalletTxType
+  amount        Decimal      @db.Decimal(14, 2)
+  balanceBefore Decimal      @db.Decimal(14, 2)
+  balanceAfter  Decimal      @db.Decimal(14, 2)
+  description   String
+  metadata      Json?
+  createdAt     DateTime     @default(now())
+
+  @@index([walletId, createdAt])
+  @@index([referenceCode])
+}
+
+model Deposit {
+  id              String            @id @default(cuid())
+  depositCode     String            @unique
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  executionMode   AppExecutionMode  @default(DEMO)
+  amount          Decimal           @db.Decimal(14, 2)
+  uniqueCode      Int               @default(0)
+  totalPayable    Decimal           @db.Decimal(14, 2)
+  paymentMethod   PaymentMethodType @default(QRIS_DYNAMIC)
+  qrisString      String            @db.Text
+  status          DepositStatus     @default(PENDING)
+  paidAt          DateTime?
+  expiresAt       DateTime
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@index([depositCode])
+}
+
+model Voucher {
+  id                String       @id @default(cuid())
+  code              String       @unique
+  title             String
+  description       String
+  discountType      DiscountType @default(PERCENTAGE)
+  discountValue     Decimal      @db.Decimal(14, 2)
+  maxDiscountAmount Decimal?     @db.Decimal(14, 2)
+  minTransaction    Decimal      @default(0) @db.Decimal(14, 2)
+  categorySlug      String?
+  minMemberLevel    MemberLevel  @default(BRONZE)
+  usageLimit        Int          @default(100)
+  usedCount         Int          @default(0)
+  perUserLimit      Int          @default(1)
+  isPublic          Boolean      @default(true)
+  isActive          Boolean      @default(true)
+  startsAt          DateTime
+  expiresAt         DateTime
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  usages            VoucherUsage[]
+
+  @@index([code, isActive])
+  @@index([expiresAt])
+}
+
+model VoucherUsage {
+  id             String   @id @default(cuid())
+  voucherId      String
+  voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  orderId        String   @unique
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId         String?
+  user           User?    @relation(fields: [userId], references: [id])
+  discountAmount Decimal  @db.Decimal(14, 2)
+  usedAt         DateTime @default(now())
+
+  @@index([voucherId, userId])
+}
+
+model Promotion {
+  id            String       @id @default(cuid())
+  title         String
+  slug          String       @unique
+  subtitle      String
+  description   String       @db.Text
+  bannerUrl     String
+  badgeText     String       @default("PROMO SPESIAL")
+  discountType  DiscountType @default(PERCENTAGE)
+  discountValue Decimal      @db.Decimal(14, 2)
+  promoCode     String?
+  categoryId    String?
+  category      Category?    @relation(fields: [categoryId], references: [id])
+  isFlashSale   Boolean      @default(false)
+  isActive      Boolean      @default(true)
+  startsAt      DateTime
+  endsAt        DateTime
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([slug, isActive])
+  @@index([isFlashSale, endsAt])
+}
+
+model Referral {
+  id               String   @id @default(cuid())
+  referrerId       String
+  referrer         User     @relation("ReferrerUser", fields: [referrerId], references: [id])
+  referredUserId   String   @unique
+  referredUser     User     @relation("ReferredUser", fields: [referredUserId], references: [id])
+  referralCodeUsed String
+  commissionAmount Decimal  @default(5000) @db.Decimal(14, 2)
+  isRewardClaimed  Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([referrerId])
+}
+
+// ----------------------------------------------------------------------------
+// 5. NOTIFICATIONS, BANNERS, WEBSITE SETTINGS & AUDIT LOGS
+// ----------------------------------------------------------------------------
+
+model Notification {
+  id          String              @id @default(cuid())
+  userId      String?
+  user        User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipient   String              // User email, phone, or userId
+  channel     NotificationChannel @default(WEBSITE)
+  type        NotificationType
+  title       String
+  message     String              @db.Text
+  actionUrl   String?
+  isRead      Boolean             @default(false)
+  isDelivered Boolean             @default(true)
+  providerLog Json?
+  createdAt   DateTime            @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([channel, createdAt])
+}
+
+model Banner {
+  id          String   @id @default(cuid())
+  title       String
+  subtitle    String
+  badgeText   String   @default("HOT EVENT")
+  imageUrl    String
+  ctaText     String   @default("Top Up Sekarang")
+  ctaUrl      String   @default("/games")
+  gradientCss String   @default("from-purple-900/90 via-indigo-950/85 to-slate-950")
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model WebsiteSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String   @db.Text
+  group       String   @default("GENERAL") // GENERAL | SEO | PAYMENT | SUPPLIER | NOTIFICATION | SECURITY
+  isSecret    Boolean  @default(false)
+  description String?
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([group])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  actorEmail String?
+  actorRole  String?
+  action     String
+  module     String
+  targetId   String?
+  ipAddress  String?
+  userAgent  String?
+  beforeData Json?
+  afterData  Json?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([module, action])
+  @@index([createdAt])
+}

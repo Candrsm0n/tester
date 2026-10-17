@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 229 45% 6%;
+    --foreground: 210 40% 98%;
+    --card: 226 49% 10%;
+    --card-foreground: 210 40% 98%;
+    --primary: 258 90% 66%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 15%;
+    --muted-foreground: 215 20% 68%;
+    --accent: 187 100% 50%;
+    --accent-foreground: 229 45% 6%;
+    --destructive: 350 89% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 35% 20%;
+    --input: 222 35% 18%;
+    --ring: 258 90% 66%;
+    --radius: 0.85rem;
+  }
+
+  .light {
+    --background: 215 35% 97%;
+    --foreground: 229 45% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 229 45% 8%;
+    --primary: 258 85% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 214 32% 91%;
+    --secondary-foreground: 229 45% 10%;
+    --muted: 214 32% 92%;
+    --muted-foreground: 215 16% 42%;
+    --accent: 195 95% 42%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 350 89% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 86%;
+    --input: 214 32% 88%;
+    --ring: 258 85% 58%;
+  }
+}
+
+body {
+  background-color: #050814;
+  color: #f8fafc;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+.glass-panel {
+  background: rgba(17, 25, 54, 0.72);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+}
+
+.glass-card-hover {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card-hover:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 229, 255, 0.55);
+  box-shadow: 0 12px 30px -8px rgba(139, 92, 246, 0.35),
+    0 4px 14px -4px rgba(0, 229, 255, 0.25);
+}
